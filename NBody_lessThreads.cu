@@ -122,6 +122,23 @@ int main(int argc, char **argv)
 {
     int tmax = 0;
 
+    // srand(time(NULL)); /* seed the random number generator for serial operations*/
+    // clock_t start, end; /* measure the starting time and the ending time to calculate the time spent for serial operations */
+    // start = clock(); /* start the timer */
+    // end = clock(); /* end the timer */
+    // /* output the execution time of the function to the terminal */
+    // double total_time = (double)(end - start) / CLOCKS_PER_SEC;
+    // printf("Total execution time: %f seconds\n", total_time);
+    // Create CUDA events for timing
+    cudaEvent_t serialStart, serialStop, parallelStart, parallelStop;
+    cudaEventCreate(&serialStart);
+    cudaEventCreate(&serialStop);
+    cudaEventCreate(&parallelStart);
+    cudaEventCreate(&parallelStop);
+
+    // Record start time for serial operations
+    cudaEventRecord(serialStart, 0);
+
     // Determine if there are two arguments on the command line
     if (argc != 2)
     {
@@ -154,17 +171,9 @@ int main(int argc, char **argv)
     body[0][Z_VEL] = 0.0;
 
     float *body_d;
-    float *Fx_dir_d;
-    float *Fy_dir_d;
-    float *Fz_dir_d;
 
     cudaMalloc((void **)&body_d, N * 7 * sizeof(float));
-    cudaMalloc((void **)&Fx_dir_d, N * sizeof(float));
-    cudaMalloc((void **)&Fy_dir_d, N * sizeof(float));
-    cudaMalloc((void **)&Fz_dir_d, N * sizeof(float));
 
-    // Copy the body array from the CPU to GPU
-    cudaMemcpy(body_d, body, N * 7 * sizeof(float), cudaMemcpyHostToDevice);
 
     for (int i = 1; i < N; i++)
     {
@@ -195,6 +204,9 @@ int main(int argc, char **argv)
         body[i][Z_VEL] = drand48() * 100 * cross_P[2];
     }
 
+    // Copy the body array from the CPU to GPU
+    cudaMemcpy(body_d, body, N * 7 * sizeof(float), cudaMemcpyHostToDevice);
+    
     // print out initial positions in PDB format
     printf("MODEL %8d\n", 0);
     for (int i = 0; i < N; i++)
@@ -203,6 +215,13 @@ int main(int argc, char **argv)
                "ATOM", i + 1, "CA ", "GLY", "A", i + 1, body[i][X_POS], body[i][Y_POS], body[i][Z_POS], 1.00, 0.00);
     }
     printf("TER\nENDMDL\n");
+
+    // Record stop time for serial operations. We assume that the initialization and printf() operations in the for loop
+    // doesn't consume any time. 
+    cudaEventRecord(serialStop, 0);
+
+    // Record start time for parallel operations
+    cudaEventRecord(parallelStart, 0);
 
     // step through each time step
     for (int t = 0; t < tmax; t++)
@@ -226,6 +245,24 @@ int main(int argc, char **argv)
         {
             printf("%s%7d  %s %s %s%4d    %8.3f%8.3f%8.3f  %4.2f  %4.3f\n", "ATOM", i + 1, "CA ", "GLY", "A", i + 1, body[i][X_POS], body[i][Y_POS], body[i][Z_POS], 1.00, 0.00);
         }
-        printf("TER\nENDMDL\n");
+        printf("TER\nENDMDL tmax: %d\n", tmax);
     } // end of time period loop
+
+    // Record stop time for parallel operations
+    cudaEventRecord(parallelStop, 0);
+    cudaEventSynchronize(parallelStop);
+
+    // Calculate and print the time spent for serial portion and parallel portion
+    float serialTimeSpent, parallelTimeSpent;
+    cudaEventElapsedTime(&serialTimeSpent, serialStart, serialStop);
+    cudaEventElapsedTime(&parallelTimeSpent, parallelStart, parallelStop);
+    printf("Serial time (seconds):   %f \n", serialTimeSpent/1000.0);
+    printf("Parallel time (seconds): %f \n", parallelTimeSpent/1000.0);
+
+    // Clean up memory and events
+    cudaEventDestroy(serialStart);
+    cudaEventDestroy(serialStop);
+    cudaEventDestroy(parallelStart);
+    cudaEventDestroy(parallelStop);
+    cudaFree(body_d);
 }
