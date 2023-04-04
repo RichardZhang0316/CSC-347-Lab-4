@@ -36,7 +36,8 @@ void norm(float &x, float &y, float &z)
 
 int main(int argc, char **argv)
 {
-
+  clock_t serial_start = clock();
+  double parallel_total_time=0.0;
   int tmax = 0;
   float Fx_dir[N];
   float Fy_dir[N];
@@ -94,6 +95,23 @@ int main(int argc, char **argv)
     body[i][Z_VEL] = drand48() * 100 * cross_P[2];
   }
 
+  // Used for test!!! Open the file "NBody.pdb" for writing
+  FILE *output_file = fopen("NBody.pdb", "w");
+  if (output_file == NULL)
+  {
+    fprintf(stderr, "Error opening file for writing.\n");
+    exit(-1);
+  }
+  // Used for test!!! Print out initial positions in PDB format
+  fprintf(output_file, "MODEL %8d\n", 0);
+  for (int i = 0; i < N; i++)
+  {
+    fprintf(output_file, "%s%7d  %s %s %s%4d    %8.3f%8.3f%8.3f  %4.2f  %4.3f\n",
+           "ATOM", i + 1, "CA ", "GLY", "A", i + 1, body[i][X_POS], body[i][Y_POS], body[i][Z_POS], 1.00, 0.00);
+  }
+  fprintf(output_file, "TER\nENDMDL\n");
+
+
   // print out initial positions in PDB format
   printf("MODEL %8d\n", 0);
   for (int i = 0; i < N; i++)
@@ -117,6 +135,7 @@ int main(int argc, char **argv)
       Fz_dir[i] = 0.0;
     }
 
+    clock_t parallel_start = clock();
     for (int x = 0; x < N; x++)
     { // force on body x due to
       for (int i = 0; i < N; i++)
@@ -153,6 +172,8 @@ int main(int argc, char **argv)
         }
       }
     }
+    clock_t parallel_end = clock();
+    parallel_total_time+=(double)(parallel_end - parallel_start) / CLOCKS_PER_SEC;
 
     // update postions and velocity in array
     for (int i = 0; i < N; i++)
@@ -169,6 +190,15 @@ int main(int argc, char **argv)
       body[i][Z_POS] = body[i][Z_POS] + body[i][Z_VEL] * dt;
     }
 
+    // Used for test!!! 
+    fprintf(output_file, "MODEL %8d\n", t + 1);
+    for (int i = 0; i < N; i++)
+    {
+      fprintf(output_file, "%s%7d  %s %s %s%4d    %8.3f%8.3f%8.3f  %4.2f  %4.3f\n", "ATOM", i + 1, "CA ", "GLY", "A", i + 1, body[i][X_POS], body[i][Y_POS], body[i][Z_POS], 1.00, 0.00);
+    }
+    fprintf(output_file, "TER\nENDMDL\n");
+
+
     // print out positions in PDB format
     printf("MODEL %8d\n", t + 1);
     for (int i = 0; i < N; i++)
@@ -177,4 +207,7 @@ int main(int argc, char **argv)
     }
     printf("TER\nENDMDL\n");
   } // end of time period loop
+  clock_t serial_end = clock();
+  printf("\nTime costed for inherently serial operations: %f seconds\n", (double)(serial_end - serial_start) / CLOCKS_PER_SEC);
+  printf("\nTime costed for potentially parallel operations: %f seconds\n", parallel_total_time);
 }
