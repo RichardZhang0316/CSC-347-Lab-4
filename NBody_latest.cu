@@ -114,6 +114,8 @@ __global__ void calculateForces(float *body, float dt, int bodiesPerThread)
 int main(int argc, char **argv)
 {
     int tmax = 0;
+    float serialTimeSpent = 0.0;
+    float parallelTimeSpent = 0.0;
 
     cudaEvent_t serialStart, serialStop, parallelStart, parallelStop;
     cudaEventCreate(&serialStart);
@@ -216,13 +218,6 @@ int main(int argc, char **argv)
     }
     printf("TER\nENDMDL\n");
 
-    // Record stop time for serial operations. We assume that the initialization and printf() operations in the for loop
-    // doesn't consume any time.
-    cudaEventRecord(serialStop, 0);
-
-    // Record start time for parallel operations
-    cudaEventRecord(parallelStart, 0);
-
     // step through each time step
     for (int t = 0; t < tmax; t++)
     {
@@ -235,9 +230,18 @@ int main(int argc, char **argv)
         dim3 gridDim((threads + 1024) / 1024);
         // TODO: initialize forces to zero (no longer need to do it here. We did this in the kernel function)
 
+        // Record start time for parallel operations
+        cudaEventRecord(parallelStart, 0);
         calculateForces<<<gridDim, blockDim>>>(body_d, dt, bodiesPerThread);
         cudaDeviceSynchronize();
         cudaMemcpy(body, body_d, N * 7 * sizeof(float), cudaMemcpyDeviceToHost);
+        // Record stop time for parallel operations
+        cudaEventRecord(parallelStop, 0);
+        cudaEventSynchronize(parallelStop);
+
+        float elapsedTime;
+        cudaEventElapsedTime(&elapsedTime, parallelStart, parallelStop);
+        parallelTimeSpent += elapsedTime;
 
         // print out positions in PDB format
         printf("MODEL %8d\n", t + 1);
@@ -256,16 +260,15 @@ int main(int argc, char **argv)
         fprintf(output_file, "TER\nENDMDL\n");
 
     } // end of time period loop
+    // Record stop time for serial operations.
+    cudaEventRecord(serialStop, 0);
 
-    // Record stop time for parallel operations
-    cudaEventRecord(parallelStop, 0);
-    cudaEventSynchronize(parallelStop);
+    // Wait for all events to complete
+    cudaEventSynchronize(serialStop);
 
     // Calculate and print the time spent for serial portion and parallel portion
-    float serialTimeSpent, parallelTimeSpent;
     cudaEventElapsedTime(&serialTimeSpent, serialStart, serialStop);
-    cudaEventElapsedTime(&parallelTimeSpent, parallelStart, parallelStop);
-    printf("Serial time (seconds):   %f \n", serialTimeSpent / 1000.0);
+    printf("Serial time (seconds):   %f \n", (serialTimeSpent - parallelTimeSpent) / 1000.0);
     printf("Parallel time (seconds): %f \n", parallelTimeSpent / 1000.0);
 
     // Clean up memory and events
